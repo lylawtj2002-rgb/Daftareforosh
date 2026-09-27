@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#d9a441">
+<title>دفترفروش</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#15161a;color:#f2f2f2;font-family:Tahoma,Arial,sans-serif}
+button,input{font:inherit}button{cursor:pointer}.app{max-width:900px;margin:auto;padding:18px 14px 40px}
+h1{font-size:24px;margin:4px 0 18px}.card{background:#1f2025;border:1px solid #35363d;border-radius:16px;padding:14px;margin:12px 0}
+input{width:100%;background:#202126;color:#fff;border:1px solid #35363d;border-radius:12px;padding:13px;outline:none}
+input:focus{border-color:#d9a441}.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+.btn{border:0;border-radius:12px;padding:13px 16px;background:#d9a441;color:#161616;font-weight:700}
+.btn.secondary{background:#303138;color:#fff}.btn.danger{background:#44252a;color:#ffb5b5;border:1px solid #74343d}
+.small{font-size:13px;color:#aaa}.muted{color:#aaa}.section-title{font-weight:700;font-size:18px;margin:18px 2px 8px}
+.tablewrap{overflow:auto;border:1px solid #35363d;border-radius:14px}
+table{width:100%;border-collapse:collapse;min-width:720px}th,td{padding:10px;border-bottom:1px solid #303138;text-align:right;vertical-align:middle}th{background:#27282e;position:sticky;top:0;z-index:1}
+.price{white-space:nowrap}.sale-head{background:#332f25}.inventory{font-weight:700}.low{color:#ffbf78}.actions{display:flex;gap:6px}.iconbtn{padding:7px 9px;border-radius:9px;border:1px solid #444;background:#292a30;color:#fff}
+.datebar{display:flex;gap:8px;overflow:auto;padding-bottom:4px}.datechip{white-space:nowrap;padding:8px 12px;border-radius:20px;background:#303138;border:1px solid #444}.datechip.active{background:#d9a441;color:#111;border-color:#d9a441}
+.report{white-space:pre-wrap;line-height:1.9}.empty{padding:18px;text-align:center;color:#aaa}
+.modalback{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;padding:18px;z-index:20}.modal{width:min(520px,100%);background:#202126;border:1px solid #45464e;border-radius:18px;padding:18px}
+.modal h3{margin-top:0}.modal .row{margin-top:14px}.hidden{display:none}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#2b2c32;border:1px solid #555;padding:10px 16px;border-radius:12px;display:none;z-index:30}
+@media(max-width:600px){.app{padding:14px 10px 32px}h1{font-size:21px}.btn{padding:11px 12px}.row>*{min-width:120px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>دفترفروش</h1>
+
+  <div class="card">
+    <input id="search" placeholder="🔎 جست‌وجوی کالا..." oninput="render()">
+  </div>
+
+  <div class="card">
+    <div class="section-title">📅 ثبت فروش روزانه</div>
+    <div class="row">
+      <button class="btn" onclick="openDateModal()">انتخاب تاریخ 📅</button>
+      <input id="directDate" placeholder="مثلاً 7.5 یا ۷.۵" inputmode="decimal">
+      <button class="btn secondary" onclick="addDirectDate()">ثبت تاریخ</button>
+    </div>
+    <div id="dates" class="datebar" style="margin-top:10px"></div>
+    <div id="dateHint" class="small" style="margin-top:8px"></div>
+  </div>
+
+  <div class="section-title">📦 کالاها</div>
+  <div id="productsTable"></div>
+
+  <div class="row" style="margin-top:12px">
+    <button class="btn" onclick="openProductModal()">+ افزودن کالا</button>
+    <button class="btn secondary" onclick="openDayReport()">گزارش فروش یک روز</button>
+    <button class="btn secondary" onclick="openRangeReport()">گزارش از این تاریخ تا این تاریخ</button>
+    <button class="btn danger" onclick="clearAll()">پاک کردن همه</button>
+  </div>
+
+  <div class="card">
+    <div class="small">اطلاعات در حافظه همین مرورگر ذخیره می‌شود و با بستن صفحه باقی می‌ماند.</div>
+  </div>
+</div>
+
+<div id="modalBack" class="modalback" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+<div id="toast" class="toast"></div>
+
+<script>
+const KEY='daftarforosh_v1';
+let state=load();
+let selectedDate=state.dates[0]||'';
+
+function faToEn(s){
+  return String(s??'').replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c)))
+    .replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));
+}
+function digits(s){return faToEn(s).replace(/[^\d]/g,'')}
+function money(n){return Number(n||0).toLocaleString('en-US')}
+function normalizeDate(s){
+  s=faToEn(String(s||'').trim()).replace(/[\/\-]/g,'.');
+  const m=s.match(/^\s*(\d{1,2})\s*\.\s*(\d{1,2})\s*$/);
+  if(!m)return null;
+  const mo=+m[1], d=+m[2];
+  if(mo<1||mo>12||d<1||d>31)return null;
+  return `${mo}.${d}`;
+}
+function dateKey(d){const [m,day]=d.split('.').map(Number);return m*100+day}
+function load(){
+  try{
+    const x=JSON.parse(localStorage.getItem(KEY)||'null');
+    return x&&Array.isArray(x.products)?x:{products:[],dates:[]};
+  }catch(e){return {products:[],dates:[]}}
+}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}
+function toast(t){const x=document.getElementById('toast');x.textContent=t;x.style.display='block';setTimeout(()=>x.style.display='none',1800)}
+function openModal(html){document.getElementById('modal').innerHTML=html;document.getElementById('modalBack').style.display='flex'}
+function closeModal(){document.getElementById('modalBack').style.display='none'}
+
+function openProductModal(id=null){
+  const p=id?state.products.find(x=>x.id===id):null;
+  openModal(`<h3>${p?'ویرایش کالا':'افزودن کالا'}</h3>
+    <input id="pName" placeholder="نام کالا" value="${p?esc(p.name):''}">
+    <div style="height:10px"></div>
+    <input id="pPrice" placeholder="قیمت واحد" inputmode="numeric" value="${p?money(p.unitPrice):''}">
+    <div style="height:10px"></div>
+    <input id="pQty" placeholder="تعداد خرید" inputmode="numeric" value="${p?p.purchaseQty:''}">
+    <div class="row">
+      <button class="btn" onclick="saveProduct('${id||''}')">ذخیره</button>
+      <button class="btn secondary" onclick="closeModal()">انصراف</button>
+    </div>`);
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function saveProduct(id){
+  const name=document.getElementById('pName').value.trim();
+  const price=Number(digits(document.getElementById('pPrice').value)||0);
+  const qty=Number(digits(document.getElementById('pQty').value)||0);
+  if(!name||price<0||qty<0){toast('لطفاً اطلاعات کالا را کامل وارد کن');return}
+  if(id){
+    const p=state.products.find(x=>x.id===id);p.name=name;p.unitPrice=price;p.purchaseQty=qty;
+  }else{
+    state.products.push({id:crypto.randomUUID(),name,unitPrice:price,purchaseQty:qty,sales:{}});
+  }
+  save();closeModal();render();
+}
+function removeProduct(id){
+  if(!confirm('آیا مطمئنی می‌خواهی این کالا حذف شود؟'))return;
+  state.products=state.products.filter(p=>p.id!==id);save();render();
+}
+
+function openDateModal(){
+  openModal(`<h3>انتخاب تاریخ</h3>
+    <input id="dm" placeholder="ماه (مثلاً 7)" inputmode="numeric">
+    <div style="height:10px"></div>
+    <input id="dd" placeholder="روز (مثلاً 5)" inputmode="numeric">
+    <div class="row"><button class="btn" onclick="savePickedDate()">ثبت تاریخ</button><button class="btn secondary" onclick="closeModal()">انصراف</button></div>`);
+}
+function savePickedDate(){
+  const m=Number(digits(document.getElementById('dm').value)),d=Number(digits(document.getElementById('dd').value));
+  const date=normalizeDate(`${m}.${d}`);
+  if(!date){toast('تاریخ صحیح نیست');return}
+  addDate(date);closeModal();
+}
+function addDirectDate(){
+  const d=normalizeDate(document.getElementById('directDate').value);
+  if(!d){toast('تاریخ را مثل 7.5 وارد کن');return}
+  addDate(d);document.getElementById('directDate').value='';
+}
+function addDate(d){
+  if(!state.dates.includes(d))state.dates.push(d);
+  state.dates.sort((a,b)=>dateKey(a)-dateKey(b));
+  selectedDate=d;save();render();
+}
+function removeDate(d){
+  // dates are display/history indexes; deleting a date removes its sales records
+  if(!confirm(`فروش‌های تاریخ ${d} هم حذف شوند؟`))return;
+  state.products.forEach(p=>{if(p.sales)delete p.sales[d]});
+  state.dates=state.dates.filter(x=>x!==d);
+  if(selectedDate===d)selectedDate=state.dates[state.dates.length-1]||'';
+  save();render();
+}
+
+function sold(p){return Object.values(p.sales||{}).reduce((a,s)=>a+Number(s.quantity||0),0)}
+function inventory(p){return Number(p.purchaseQty||0)-sold(p)}
+
+function setSale(id,date,val){
+  const p=state.products.find(x=>x.id===id); if(!p||!date)return;
+  const q=Number(digits(val)||0);
+  if(q<0)return;
+  if(q===0){delete p.sales[date]}
+  else{
+    if(!p.sales[date])p.sales[date]={quantity:q,price:p.unitPrice};
+    else p.sales[date].quantity=q;
+  }
+  save();render();
+}
+function getSale(p,d){return p.sales?.[d]||null}
+
+function render(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const products=state.products.filter(p=>p.name.toLowerCase().includes(q));
+  document.getElementById('dates').innerHTML=state.dates.map(d=>`<button class="datechip ${d===selectedDate?'active':''}" onclick="selectedDate='${d}';render()">فروش ${d}</button>`).join('');
+  document.getElementById('dateHint').textContent=selectedDate?`تاریخ فعال: ${selectedDate} — فقط تعداد فروش را وارد کن.`:'هنوز تاریخی ثبت نشده.';
+
+  let html='';
+  if(!products.length){html='<div class="card empty">هنوز کالایی اضافه نشده.</div>'}
+  else{
+    const groups=[];
+    for(let i=0;i<state.dates.length;i+=3)groups.push(state.dates.slice(i,i+3));
+    let head='<tr><th>نام کالا</th><th>قیمت واحد</th><th>تعداد خرید</th><th>موجودی</th>';
+    (groups[0]||[]).forEach(d=>head+=`<th class="sale-head">فروش ${d}</th>`);
+    head+='<th>عملیات</th></tr>';
+    let body='';
+    products.forEach(p=>{
+      body+=`<tr><td>${esc(p.name)}</td><td class="price">${money(p.unitPrice)}</td><td>${p.purchaseQty}</td><td class="inventory ${inventory(p)<0?'low':''}">${inventory(p)}</td>`;
+      (groups[0]||[]).forEach(d=>{const s=getSale(p,d);body+=`<td><input style="min-width:80px" inputmode="numeric" value="${s?s.quantity:''}" placeholder="تعداد" onchange="setSale('${p.id}','${d}',this.value)"></td>`});
+      body+=`<td><div class="actions"><button class="iconbtn" onclick="openProductModal('${p.id}')">ویرایش</button><button class="iconbtn" onclick="removeProduct('${p.id}')">حذف</button></div></td></tr>`;
+    });
+    html=`<div class="tablewrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    // Extra date groups under the first group as separate compact tables.
+    groups.slice(1).forEach((grp,gi)=>{
+      let h='<tr><th>نام کالا</th><th>قیمت واحد</th><th>تعداد خرید</th><th>موجودی</th>';
+      grp.forEach(d=>h+=`<th class="sale-head">فروش ${d}</th>`);h+='<th>عملیات</th></tr>';
+      let b='';
+      products.forEach(p=>{
+        b+=`<tr><td>${esc(p.name)}</td><td>${money(p.unitPrice)}</td><td>${p.purchaseQty}</td><td>${inventory(p)}</td>`;
+        grp.forEach(d=>{const s=getSale(p,d);b+=`<td><input style="min-width:80px" inputmode="numeric" value="${s?s.quantity:''}" placeholder="تعداد" onchange="setSale('${p.id}','${d}',this.value)"></td>`});
+        b+=`<td></td></tr>`;
+      });
+      html+=`<div class="tablewrap" style="margin-top:12px"><table><thead>${h}</thead><tbody>${b}</tbody></table></div>`;
+    });
+  }
+  document.getElementById('productsTable').innerHTML=html;
+}
+
+function askDate(title,cb){
+  openModal(`<h3>${title}</h3><input id="askD" placeholder="مثلاً 7.5" inputmode="decimal"><div class="row"><button class="btn" onclick="const d=normalizeDate(document.getElementById('askD').value);if(!d){toast('تاریخ صحیح نیست');return}closeModal();(${cb.toString()})(d)">ادامه</button><button class="btn secondary" onclick="closeModal()">انصراف</button></div>`);
+}
+function openDayReport(){
+  askDate('گزارش فروش کدام روز را می‌خواهی؟',d=>showDayReport(d));
+}
+function showDayReport(d){
+  let totalQ=0,totalM=0,lines=[];
+  state.products.forEach(p=>{const s=getSale(p,d);if(s&&s.quantity){const amount=s.quantity*s.price;totalQ+=s.quantity;totalM+=amount;lines.push(`${p.name}:\n${s.quantity} عدد × ${money(s.price)} = ${money(amount)} تومان`)}});
+  openModal(`<h3>گزارش فروش ${d}</h3><div class="report">${lines.length?lines.join('\\n\\n'):'برای این تاریخ فروشی ثبت نشده.'}<hr>تعداد کل فروش: ${totalQ} عدد\nمبلغ کل فروش: ${money(totalM)} تومان</div><button class="btn secondary" onclick="closeModal()">بستن</button>`);
+}
+function openRangeReport(){
+  openModal(`<h3>گزارش بازه‌ای</h3><input id="fromD" placeholder="از چه تاریخی؟ مثلاً 7.1"><div style="height:10px"></div><input id="toD" placeholder="تا چه تاریخی؟ مثلاً 7.30"><div class="row"><button class="btn" onclick="rangeReport()">گزارش</button><button class="btn secondary" onclick="closeModal()">انصراف</button></div>`);
+}
+function rangeReport(){
+  const a=normalizeDate(document.getElementById('fromD').value),b=normalizeDate(document.getElementById('toD').value);
+  if(!a||!b){toast('هر دو تاریخ را صحیح وارد کن');return}
+  const lo=dateKey(a),hi=dateKey(b); if(lo>hi){toast('تاریخ شروع باید قبل از پایان باشد');return}
+  let allQ=0,allM=0,lines=[];
+  state.products.forEach(p=>{
+    let q=0,m=0;
+    Object.entries(p.sales||{}).forEach(([d,s])=>{const k=dateKey(d);if(k>=lo&&k<=hi){q+=Number(s.quantity);m+=Number(s.quantity)*Number(s.price)}});
+    if(q){allQ+=q;allM+=m;lines.push(`${p.name}: ${q} عدد — ${money(m)} تومان`)}
+  });
+  openModal(`<h3>گزارش ${a} تا ${b}</h3><div class="report">${lines.length?lines.join('\\n'):'در این بازه فروشی ثبت نشده.'}<hr>تعداد کل فروش: ${allQ} عدد\nمبلغ کل فروش: ${money(allM)} تومان</div><button class="btn secondary" onclick="closeModal()">بستن</button>`);
+}
+function clearAll(){
+  if(!confirm('⚠️ مطمئنی می‌خواهی همه اطلاعات پاک شود؟'))return;
+  const code=String(Math.floor(1000+Math.random()*9000));
+  openModal(`<h3>تأیید نهایی</h3><p>برای پاک کردن همه اطلاعات، این کد را وارد کن:</p><h2 style="text-align:center;letter-spacing:6px">${code}</h2><input id="clearCode" inputmode="numeric" placeholder="کد ۴ رقمی"><div class="row"><button class="btn danger" onclick="if(document.getElementById('clearCode').value==='${code}'){localStorage.removeItem(KEY);state={products:[],dates:[]};selectedDate='';closeModal();render();toast('همه اطلاعات پاک شد')}else toast('کد اشتباه بود. اطلاعات پاک نشد.')">پاک کردن</button><button class="btn secondary" onclick="closeModal()">انصراف</button></div>`);
+}
+render();
+</script>
+</body>
+</html>
